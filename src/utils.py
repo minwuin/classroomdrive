@@ -6,12 +6,12 @@ import time
 # [고정 변수 설정 영역] - 장소에 따라 이 값들을 수정하세요
 # ==========================================
 # 1. 실제 거리 설정 (01_calibration.py에서 설정한 사각형의 실제 크기)
-REAL_WIDTH = 0.262   
-REAL_HEIGHT = 0.178  
+REAL_WIDTH = 0.210
+REAL_HEIGHT = 3.280
 
 # 2. 속도 분류 임계값 (m/s 단위)
 VEL_STANDING = 1  # 이 값보다 작으면 정지상태로 간주
-VEL_WALKING = 3   # 이 값보다 크면 뛰는 상태로 간주
+VEL_WALKING = 2   # 이 값보다 크면 뛰는 상태로 간주
 
 # 3. 차선 가이드 설정 (화면 가로 비율 기준)
 LANE_HSV_LOWER = [0, 102, 108]
@@ -52,7 +52,7 @@ class AutonomousUtils:
         else:
             return "RUNNING", (0, 0, 255)     # 빨간색
 
-    def calculate_ttc(self, curr_y_m, velocity_y):
+    def calculate_ttc(self, curr_y_m, velocity_y, cam_y_m):
         """
         curr_y_m: 보행자의 현재 y 위치 (meters)
         velocity_y: Y축 접근 속도 (양수면 다가옴, 음수면 멀어짐)
@@ -60,7 +60,7 @@ class AutonomousUtils:
         # 속도가 양수(+), 즉 나에게 다가오고 있을 때만 충돌 시간 계산
         if velocity_y > 0.01:
             # 내 위치(REAL_HEIGHT)에서 보행자 위치(curr_y_m)를 뺀 실제 남은 거리
-            distance_left = REAL_HEIGHT - curr_y_m
+            distance_left = cam_y_m - curr_y_m
             
             # 이미 내 위치를 지나쳤거나 겹쳤다면 0초 반환
             if distance_left <= 0:

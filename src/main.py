@@ -170,11 +170,18 @@ while True:
                 # 판단 및 계산 함수 호출                # 보행자의 상태(서있음/뜀)는 '절대 속도'로 판단하여 색상 결정
                 status, box_color = utils.get_behavior_status(absolute_velocity)
                 
-                # 충돌 시간(TTC)은 나와 실제로 가까워지는 '상대 속도(v_rel_y)'로 판단
-                ttc = utils.calculate_ttc(curr_y_m, v_rel_y) 
+                cam_x_m, cam_y_m = utils.pixel_to_meter(w_img // 2, h_img)
+                
+                # [추가] 카메라(나)와 보행자 사이의 진짜 떨어진 거리 계산
+                actual_distance = cam_y_m - curr_y_m
+                if actual_distance < 0: actual_distance = 0.0 # 내 뒤로 넘어가면 0으로 처리
+                
+                # 충돌 시간(TTC) 계산
+                ttc = utils.calculate_ttc(curr_y_m, v_rel_y, cam_y_m)
+                # -------------------------
 
-                # 시각화 (UI 출력) - total_velocity를 absolute_velocity로 변경
-                label = f"{status} | Dist: {curr_y_m:.1f}m | Vel: {absolute_velocity:.2f}m/s"
+                # 시각화 (UI 출력) - curr_y_m 대신 actual_distance 출력!
+                label = f"{status} | Dist: {actual_distance:.1f}m | Vel: {absolute_velocity:.2f}m/s"
                 
                 
                 if ttc < 3.0: # 5초 이내로 가까워질 때만 경고
@@ -189,7 +196,9 @@ while True:
 
         # 다음 프레임 계산을 위해 '현재 값(필터링된 값)'을 '이전 값'으로 저장
         prev_pos_m = (curr_x_m, curr_y_m)
-        prev_time = current_time
+
+    else:
+        prev_pos_m = None
 
     # --- [기능 3: 차선 감지 및 가이드 로직] ---
     # 화면 하단 40% 영역을 차선 인식 ROI로 설정
