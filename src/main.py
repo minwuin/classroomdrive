@@ -46,20 +46,44 @@ while True:
     
     h_img, w_img = frame.shape[:2]
 
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    results = pose.process(rgb_frame)
+    
+    ped_bbox = None  # 보행자 바운딩 박스 좌표 (x1, y1, x2, y2)
+    px, py = 0, 0
+
+
+    if results.pose_landmarks:
+        lm = results.pose_landmarks.landmark
+        px = int((lm[mp_pose.PoseLandmark.LEFT_ANKLE].x + lm[mp_pose.PoseLandmark.RIGHT_ANKLE].x) / 2 * w_img)
+        py = int((lm[mp_pose.PoseLandmark.LEFT_ANKLE].y + lm[mp_pose.PoseLandmark.RIGHT_ANKLE].y) / 2 * h_img)
+        
+        # 보행자 주변 영역을 넉넉하게 박스로 설정 (Optical Flow 노이즈 방지용)
+        ped_bbox = (px - 80, py - 150, px + 80, py + 30)
+
+    
     # ==========================================================
     # --- [기능 5: 광학 흐름(Optical Flow)으로 내 속도 구하기] ---
     # ==========================================================
     gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+    def get_flow_mask():
+        m = np.zeros_like(gray_frame)
+        m[int(h_img*0.5):, :] = 255
+        if ped_bbox is not None:
+            x1, y1, x2, y2 = ped_bbox
+            # 화면 밖으로 나가지 않게 제한
+            x1, y1 = max(0, x1), max(0, y1)
+            x2, y2 = min(w_img, x2), min(h_img, y2)
+            cv2.rectangle(m, (x1, y1), (x2, y2), 0, -1) # 보행자 영역은 검은색(0)으로 칠해 점 추출 방지
+        return m
     
     if old_gray is None:
         old_gray = gray_frame
-        # 바닥 부분(화면 하단 50%)에서만 점을 찾도록 마스크 씌우기
-        mask = np.zeros_like(old_gray)
-        mask[int(h_img*0.5):, :] = 255
+        mask = get_flow_mask()
         p0 = cv2.goodFeaturesToTrack(old_gray, mask=mask, **feature_params)
     else:
         if p0 is not None and len(p0) > 0:
-            # 점 추적
             p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, gray_frame, p0, None, **lk_params)
             good_new = p1[st == 1]
             good_old = p0[st == 1]
@@ -67,52 +91,41 @@ while True:
             speeds = []
             for new, old in zip(good_new, good_old):
                 a, b = new.ravel()
-                c, d = old.ravel()
                 
-                ## 픽셀 좌표를 실제 미터(m)로 변환
+                # [핵심] 이미 추적 중인 점이라도 보행자 영역 안으로 들어오면 계산에서 무시!
+                if ped_bbox is not None:
+                    x1, y1, x2, y2 = ped_bbox
+                    if x1 <= a <= x2 and y1 <= b <= y2:
+                        continue 
+                
+                c, d = old.ravel()
                 m_new_x, m_new_y = utils.pixel_to_meter(a, b)
                 m_old_x, m_old_y = utils.pixel_to_meter(c, d)
                 
-                # [핵심 수정] X축(좌우)과 Y축(앞뒤) 이동량을 분리
                 dist_x = abs(m_new_x - m_old_x)
                 dist_y = abs(m_new_y - m_old_y)
                 
-                # 회전 노이즈 필터링: 
-                # 프레임당 좌우(X축)로 너무 심하게 튀는 점은 카메라 회전으로 간주하고 무시함
                 if dist_x < 0.05: 
-                    # 정상적인 점이라면 오직 '앞뒤(Y축)' 이동 거리만 속도 계산에 사용
                     speeds.append(dist_y)
-                
-                # 추적하는 점을 파란색으로 화면에 표시
                 cv2.circle(frame, (int(a), int(b)), 3, (255, 0, 0), -1)
 
             if len(speeds) > 0 and dt > 0:
-                # 점들의 평균 이동 속도
                 current_speed = np.mean(speeds) / dt
-                
-                if current_speed < 0.02: current_speed = 0.0 # 데드존
-                # 내 속도에 EMA 필터 적용 (조금 묵직하게 alpha=0.1)
+                if current_speed < 0.02: current_speed = 0.0 
                 ego_speed = (0.1 * current_speed) + (0.9 * ego_speed)
 
-            # 점이 10개 미만으로 줄면 새로 추출
             p0 = good_new.reshape(-1, 1, 2)
             if len(p0) < 10:
-                mask = np.zeros_like(gray_frame)
-                mask[int(h_img*0.5):, :] = 255
+                mask = get_flow_mask()
                 p0 = cv2.goodFeaturesToTrack(gray_frame, mask=mask, **feature_params)
         else:
-            mask = np.zeros_like(gray_frame)
-            mask[int(h_img*0.5):, :] = 255
+            mask = get_flow_mask()
             p0 = cv2.goodFeaturesToTrack(gray_frame, mask=mask, **feature_params)
             
         old_gray = gray_frame.copy()
     
     # --- [기능 1: Bird's Eye View 생성] ---
     bev_frame = cv2.warpPerspective(frame, M_view, (400, 600))
-    
-    # --- [기능 2: 보행자 인식 및 물리량 계산] ---
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    results = pose.process(rgb_frame)
     
     status_msg = "DRIVE SAFE"
     ui_color = (0, 255, 0) # 기본 초록색 바
@@ -136,27 +149,35 @@ while True:
                 curr_y_m = (alpha * curr_y_m) + ((1 - alpha) * prev_pos_m[1])
                 # -------------------------------------------------------------
 
-                # 필터링된 좌표 기준으로 이동 거리 및 속도 계산
-                dist_moved = np.sqrt((curr_x_m - prev_pos_m[0])**2 + (curr_y_m - prev_pos_m[1])**2)
-                total_velocity = dist_moved / dt 
-                velocity_y = (curr_y_m - prev_pos_m[1]) / dt
+                # 1. 카메라에 측정된 상대 속도 (나와 보행자가 가까워지는 속도)
+                v_rel_x = (curr_x_m - prev_pos_m[0]) / dt
+                v_rel_y = (curr_y_m - prev_pos_m[1]) / dt
+                
+                # 2. 보행자 절대 속도 보정 (내 차량의 속도를 빼서 보행자의 진짜 움직임만 추출)
+                v_abs_y = v_rel_y - ego_speed
+                
+                # 피타고라스 정리로 보행자의 진짜 속도(절대 속도) 계산
+                absolute_velocity = np.sqrt(v_rel_x**2 + v_abs_y**2)
                 
                 # -------------------------------------------------------------
                 # [데드존] 미세한 떨림(0.02m/s 미만)은 속도를 0으로 강제 고정
-                if total_velocity < 0.02: 
-                    total_velocity = 0.0
-                if abs(velocity_y) < 0.02: 
-                    velocity_y = 0.0
+                if absolute_velocity < 0.02: 
+                    absolute_velocity = 0.0
+                if abs(v_rel_y) < 0.02: 
+                    v_rel_y = 0.0
                 # -------------------------------------------------------------
                 
-                # 판단 및 계산 함수 호출
-                status, box_color = utils.get_behavior_status(total_velocity)
-                ttc = utils.calculate_ttc(curr_y_m, velocity_y) 
-
-                # 시각화 (UI 출력)
-                label = f"{status} | Dist: {curr_y_m:.1f}m | Vel: {total_velocity:.2f}m/s"
+                # 판단 및 계산 함수 호출                # 보행자의 상태(서있음/뜀)는 '절대 속도'로 판단하여 색상 결정
+                status, box_color = utils.get_behavior_status(absolute_velocity)
                 
-                if ttc < 5.0: # 5초 이내로 가까워질 때만 경고
+                # 충돌 시간(TTC)은 나와 실제로 가까워지는 '상대 속도(v_rel_y)'로 판단
+                ttc = utils.calculate_ttc(curr_y_m, v_rel_y) 
+
+                # 시각화 (UI 출력) - total_velocity를 absolute_velocity로 변경
+                label = f"{status} | Dist: {curr_y_m:.1f}m | Vel: {absolute_velocity:.2f}m/s"
+                
+                
+                if ttc < 3.0: # 5초 이내로 가까워질 때만 경고
                     status_msg = f"!!! COLLISION ALERT: {ttc:.1f}s !!!"
                     ui_color = (0, 0, 255)
                 else:
