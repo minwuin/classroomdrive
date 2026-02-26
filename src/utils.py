@@ -10,8 +10,8 @@ REAL_WIDTH = 0.210
 REAL_HEIGHT = 3.280
 
 # 2. 속도 분류 임계값 (m/s 단위)
-VEL_STANDING = 1  # 이 값보다 작으면 정지상태로 간주
-VEL_WALKING = 2   # 이 값보다 크면 뛰는 상태로 간주
+VEL_STANDING = 0.5  # 이 값보다 작으면 정지상태로 간주
+VEL_WALKING = 1.5   # 이 값보다 크면 뛰는 상태로 간주
 
 # 3. 차선 가이드 설정 (화면 가로 비율 기준)
 LANE_HSV_LOWER = [52, 75, 111]
