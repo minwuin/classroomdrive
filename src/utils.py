@@ -14,7 +14,7 @@ VEL_STANDING = 1  # 이 값보다 작으면 정지상태로 간주
 VEL_WALKING = 2   # 이 값보다 크면 뛰는 상태로 간주
 
 # 3. 차선 가이드 설정 (화면 가로 비율 기준)
-LANE_HSV_LOWER = [0, 102, 108]
+LANE_HSV_LOWER = [52, 75, 111]
 LANE_HSV_UPPER = [97, 255, 255]
 LANE_CENTER_OFFSET = 0.1  # 중심에서 10% 이상 벗어나면 안내 메시지 출력
 # ==========================================
@@ -77,9 +77,9 @@ class AutonomousUtils:
         center_ratio = cx / frame_width
         
         if center_ratio < 0.5 - LANE_CENTER_OFFSET:
-            return "STEER RIGHT >>", (0, 165, 255) # 오렌지색
+            return "<< STEER LEFT", (0, 165, 255) # 오렌지색
         elif center_ratio > 0.5 + LANE_CENTER_OFFSET:
-            return "<< STEER LEFT", (0, 165, 255)
+            return "STEER RIGHT >>", (0, 165, 255)
         else:
             return "KEEP CENTER", (0, 255, 0)      # 초록색
 
