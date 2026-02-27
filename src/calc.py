@@ -4,7 +4,7 @@ import os
 
 # [설정] 실제 거리값 (utils.py와 동일하게 맞추세요)
 REAL_WIDTH = 0.210
-REAL_HEIGHT = 3.280
+REAL_HEIGHT = 2.697
 
 pts = []
 

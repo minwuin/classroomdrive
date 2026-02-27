@@ -13,6 +13,9 @@ cap = cv2.VideoCapture(0)
 # 중복 입력 방지를 위한 변수
 last_action_time = 0
 cooldown = 2  # 2초 동안 재입력 방지
+v_start_time = 0        # V 제스처가 시작된 시각
+required_duration = 0.8 # 최소 유지 시간 (1초)
+gesture_active = False  # 현재 V 제스처가 진행 중인지 여부
 
 def is_v_sign(hand_landmarks):
     # 손가락 끝(Tip) 번호: 검지(8), 중지(12), 약지(16), 새끼(20)
@@ -42,23 +45,43 @@ while cap.isOpened():
             if is_v_sign(hand_landmarks):
                 v_count += 1
 
-        # 제스처 판별 로직
-        if current_time - last_action_time > cooldown:
-            if v_count == 2:
-                print("양손 V 감지: 이전 페이지로 (Left)")
-                pyautogui.press('left')
-                last_action_time = current_time
-            elif v_count == 1:
-                print("한 손 V 감지: 다음 페이지로 (Right)")
-                pyautogui.press('right')
-                last_action_time = current_time
+    if v_count > 0:
+            if not gesture_active:
+                # 방금 막 V를 시작함
+                v_start_time = current_time
+                gesture_active = True
+            
+            # 얼마나 유지되었는지 계산
+            elapsed = current_time - v_start_time
+            
+            # 쿨다운이 끝났고, 설정한 시간(1초) 이상 유지했다면 실행
+            if current_time - last_action_time > cooldown:
+                if elapsed >= required_duration:
+                    if v_count == 2:
+                        print("양손 V 1초 유지: 이전 페이지")
+                        pyautogui.press('left')
+                    elif v_count == 1:
+                        print("한 손 V 1초 유지: 다음 페이지")
+                        pyautogui.press('right')
+                    
+                    last_action_time = current_time # 쿨다운 시작
+                    gesture_active = False          # 실행 후 초기화
+    else:
+        # V 사인이 화면에서 사라지면 타이머 리셋
+        gesture_active = False
+        v_start_time = 0
 
-    # 화면에 상태 표시
-    cv2.putText(image, f"V Count: {v_count}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    cv2.imshow('PPT Gesture Control', image)
+    # 시각적 피드백 (화면에 게이지나 상태 표시)
+    if gesture_active and (current_time - last_action_time > cooldown):
+        progress = min((current_time - v_start_time) / required_duration, 1.0)
+        cv2.rectangle(image, (10, 70), (210, 90), (255, 255, 255), 2)
+        cv2.rectangle(image, (10, 70), (10 + int(progress * 200), 90), (0, 255, 0), -1)
+        cv2.putText(image, "Holding...", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
-    if cv2.waitKey(1) & 0xFF == 27: # ESC 누르면 종료
-        break
+    cv2.putText(image, f"V Count: {v_count}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+    cv2.imshow('Improved Gesture Control', image)
+
+    if cv2.waitKey(1) & 0xFF == 27: break
 
 cap.release()
 cv2.destroyAllWindows()
